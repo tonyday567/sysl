@@ -1,0 +1,30 @@
+cabal-version:      3.0
+name:               sysl
+version:            0.1.0.0
+synopsis:           System language interpreter with traced monoidal evaluation
+description:        A system language with commands, values, terms and coterms, interpreted via traced monoidal categories.
+license:            BSD-3-Clause
+author:             tonyday567
+maintainer:         tonyday567@gmail.com
+category:           Language
+build-type:         Simple
+
+common warnings
+  ghc-options:
+    -Wall
+    -Wcompat
+    -Wincomplete-record-updates
+    -Wincomplete-uni-patterns
+    -Wredundant-constraints
+
+library
+  import:           warnings
+  exposed-modules:
+    SysL
+  hs-source-dirs:   src
+  default-language: GHC2024
+  build-depends:
+    base >=4.18 && <5,
+    yarn >=0.1 && <1,
+  default-extensions:
+    UnicodeSyntax
