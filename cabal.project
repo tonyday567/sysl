@@ -1,6 +1,5 @@
 packages:
   sysl.cabal
-  ../yarn/yarn.cabal
 
 write-ghc-environment-files: always
 
