@@ -27,8 +27,10 @@ module SysL
   , testThenTraced
   ) where
 
-import Traced (TracedA (..), Traced, run)
-import Traced qualified
+import Circuit (Circuit(..), Wire, reify)
+
+-- | Traced arrow — a 'Wire' (Circuit (->) (,)).
+type Traced = Wire
 
 -- | Types
 data Ty
@@ -202,15 +204,15 @@ termToTraced (Embed v) =
   Lift $ \stack -> (stack, evalValue v stack)
 termToTraced (Mu cmd) =
   Lift $ \stack ->
-    case run (commandToTraced cmd) stack of
+    case reify (commandToTraced cmd) stack of
       (0, v) -> (stack, v)
       _      -> error "Mu: expected slot 0"
 termToTraced (ThenComatch cmd) =
   Lift $ \stack ->
-    let fwdA = case run (commandToTraced cmd) stack of
+    let fwdA = case reify (commandToTraced cmd) stack of
                  (1, v) -> v
                  _      -> error "ThenComatch: expected slot 1"
-        bwCont bwA = case run (commandToTraced cmd) (bwA : stack) of
+        bwCont bwA = case reify (commandToTraced cmd) (bwA : stack) of
           (slot, v) -> RVal slot v
     in (stack, VThen fwdA bwCont)
 
@@ -229,30 +231,30 @@ cotermToTraced (TensorMatch cmd) =
       _         -> error "TensorMatch: not a pair")
 cotermToTraced (PlusMatch c1 c2) =
   Lift $ \(stack, val) -> case val of
-    VLeft x  -> run (commandToTraced c1) (x : stack)
-    VRight y -> run (commandToTraced c2) (y : stack)
+    VLeft x  -> reify (commandToTraced c1) (x : stack)
+    VRight y -> reify (commandToTraced c2) (y : stack)
     _        -> error "PlusMatch: not a sum"
 cotermToTraced (HomCointro t k) =
   Lift $ \(stack, val) ->
-    case run (termToTraced t) stack of
+    case reify (termToTraced t) stack of
       (_, arg) -> case val of
         VFun f -> let RVal _ v = f arg
-                  in run (cotermToTraced k) (stack, v)
+                  in reify (cotermToTraced k) (stack, v)
         _      -> error "HomCointro: not a function"
 cotermToTraced (GradedHomCointro t coterms) =
   Lift $ \(stack, val) ->
-    case run (termToTraced t) stack of
+    case reify (termToTraced t) stack of
       (_, arg) -> case val of
         VGradedFun f ->
           let RVal slot v = f arg
-          in run (cotermToTraced (coterms !! slot)) (stack, v)
+          in reify (cotermToTraced (coterms !! slot)) (stack, v)
         _ -> error "GradedHomCointro: not a graded function"
 cotermToTraced (ThenCointro k1 k2) =
   Lift $ \(stack, val) -> case val of
     VThen fwdA cont ->
-      let (_, residual) = run (cotermToTraced k1) (stack, fwdA)
+      let (_, residual) = reify (cotermToTraced k1) (stack, fwdA)
           RVal _ fwdB   = cont residual
-      in run (cotermToTraced k2) (stack, fwdB)
+      in reify (cotermToTraced k2) (stack, fwdB)
     _ -> error "ThenCointro: expected VThen"
 
 -- | Tests
@@ -283,7 +285,7 @@ testThen =
 -- | Round trip tests for Traced interpretation
 
 testIdTraced :: (Int, Val ())
-testIdTraced = run
+testIdTraced = reify
   (commandToTraced
     (Cut
       (Embed (HomComatch (Cut (Embed (Var 0)) (Covar 0))))
@@ -294,7 +296,7 @@ testIdTraced = run
 testThenTraced :: (Int, Val Double)
 testThenTraced =
   let val = VThen (VEmbed 1.0) (\r -> RVal 0 r)
-  in run
+  in reify
       (commandToTraced
         (Cut
           (Embed (Lit val))

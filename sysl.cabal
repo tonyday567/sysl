@@ -21,11 +21,11 @@ library
   import:           warnings
   exposed-modules:
     SysL
-    Traced
   hs-source-dirs:   src
   default-language: GHC2024
   build-depends:
     base >=4.18 && <5,
+    circuits
 
   default-extensions:
     UnicodeSyntax
