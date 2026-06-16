@@ -280,7 +280,7 @@ testId =
 -- expected: (0, VEmbed 1.0)
 testThen :: Output Double
 testThen =
-  let val = VThen (VEmbed 1.0) (\r -> RVal 0 r)
+  let val = VThen (VEmbed 1.0) (RVal 0)
    in evalCommand
         ( Cut
             (Embed (Lit val))
@@ -307,7 +307,7 @@ testIdTraced =
 
 testThenTraced :: (Int, Val Double)
 testThenTraced =
-  let val = VThen (VEmbed 1.0) (\r -> RVal 0 r)
+  let val = VThen (VEmbed 1.0) (RVal 0)
    in reify
         ( commandToTraced
             ( Cut
