@@ -31,10 +31,12 @@ module SysL
   )
 where
 
-import Circuit (Circuit (..), Wire, reify)
+import Circuit.Layer (run)
+import Circuit.Loop (Loop (..))
+import Circuit.Category ((.>))
 
--- | Traced arrow — a 'Wire' (Circuit (->) (,)).
-type Traced = Wire
+-- | Traced arrow — a 'Loop (,) (->)'.
+type Traced = Loop (,) (->)
 
 -- | Types
 data Ty
@@ -199,22 +201,22 @@ show' (VEmbed _) = "VEmbed"
 -- Coterm: (stack, focus) in, (slot, val) out
 commandToTraced :: Command v -> Traced [Val v] (Int, Val v)
 commandToTraced (Cut t k) =
-  Compose (cotermToTraced k) (termToTraced t)
+  termToTraced t .> cotermToTraced k
 
 termToTraced :: Term v -> Traced [Val v] ([Val v], Val v)
 termToTraced (Embed v) =
   Lift $ \stack -> (stack, evalValue v stack)
 termToTraced (Mu cmd) =
   Lift $ \stack ->
-    case reify (commandToTraced cmd) stack of
+    case run (commandToTraced cmd) stack of
       (0, v) -> (stack, v)
       _ -> error "Mu: expected slot 0"
 termToTraced (ThenComatch cmd) =
   Lift $ \stack ->
-    let fwdA = case reify (commandToTraced cmd) stack of
+    let fwdA = case run (commandToTraced cmd) stack of
           (1, v) -> v
           _ -> error "ThenComatch: expected slot 1"
-        bwCont bwA = case reify (commandToTraced cmd) (bwA : stack) of
+        bwCont bwA = case run (commandToTraced cmd) (bwA : stack) of
           (slot, v) -> RVal slot v
      in (stack, VThen fwdA bwCont)
 
@@ -222,43 +224,39 @@ cotermToTraced :: Coterm v -> Traced ([Val v], Val v) (Int, Val v)
 cotermToTraced (Covar i) =
   Lift $ \(_, val) -> (i, val)
 cotermToTraced (Comu cmd) =
-  Compose
-    (commandToTraced cmd)
-    (Lift $ \(stack, val) -> val : stack)
+  Lift (\(stack, val) -> val : stack) .> commandToTraced cmd
 cotermToTraced (TensorMatch cmd) =
-  Compose
-    (commandToTraced cmd)
-    ( Lift $ \(stack, val) -> case val of
-        VPair x y -> x : y : stack
-        _ -> error "TensorMatch: not a pair"
-    )
+  Lift (\(stack, val) -> case val of
+    VPair x y -> x : y : stack
+    _ -> error "TensorMatch: not a pair"
+  ) .> commandToTraced cmd
 cotermToTraced (PlusMatch c1 c2) =
   Lift $ \(stack, val) -> case val of
-    VLeft x -> reify (commandToTraced c1) (x : stack)
-    VRight y -> reify (commandToTraced c2) (y : stack)
+    VLeft x -> run (commandToTraced c1) (x : stack)
+    VRight y -> run (commandToTraced c2) (y : stack)
     _ -> error "PlusMatch: not a sum"
 cotermToTraced (HomCointro t k) =
   Lift $ \(stack, val) ->
-    case reify (termToTraced t) stack of
+    case run (termToTraced t) stack of
       (_, arg) -> case val of
         VFun f ->
           let RVal _ v = f arg
-           in reify (cotermToTraced k) (stack, v)
+           in run (cotermToTraced k) (stack, v)
         _ -> error "HomCointro: not a function"
 cotermToTraced (GradedHomCointro t coterms) =
   Lift $ \(stack, val) ->
-    case reify (termToTraced t) stack of
+    case run (termToTraced t) stack of
       (_, arg) -> case val of
         VGradedFun f ->
           let RVal slot v = f arg
-           in reify (cotermToTraced (coterms !! slot)) (stack, v)
+           in run (cotermToTraced (coterms !! slot)) (stack, v)
         _ -> error "GradedHomCointro: not a graded function"
 cotermToTraced (ThenCointro k1 k2) =
   Lift $ \(stack, val) -> case val of
     VThen fwdA cont ->
-      let (_, residual) = reify (cotermToTraced k1) (stack, fwdA)
+      let (_, residual) = run (cotermToTraced k1) (stack, fwdA)
           RVal _ fwdB = cont residual
-       in reify (cotermToTraced k2) (stack, fwdB)
+       in run (cotermToTraced k2) (stack, fwdB)
     _ -> error "ThenCointro: expected VThen"
 
 -- | Tests
@@ -294,7 +292,7 @@ testThen =
 -- | Round trip tests for Traced interpretation
 testIdTraced :: (Int, Val ())
 testIdTraced =
-  reify
+  run
     ( commandToTraced
         ( Cut
             (Embed (HomComatch (Cut (Embed (Var 0)) (Covar 0))))
@@ -308,7 +306,7 @@ testIdTraced =
 testThenTraced :: (Int, Val Double)
 testThenTraced =
   let val = VThen (VEmbed 1.0) (RVal 0)
-   in reify
+   in run
         ( commandToTraced
             ( Cut
                 (Embed (Lit val))
