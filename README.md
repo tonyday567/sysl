@@ -11,7 +11,7 @@ A system language interpreter using traced monoidal evaluation.
 - **Terms** - Expressions with fixed-point evaluation
 - **Coterms** - Dual structures for bidirectional semantics
 
-All evaluated via the traced monoidal category framework from the `yarn` library.
+All evaluated via the traced monoidal category framework from the `circuits` library.
 
 ## Building
 
