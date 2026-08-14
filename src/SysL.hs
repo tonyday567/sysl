@@ -20,7 +20,8 @@
 -- * User-facing types are promoted to 'Circuit.Poly' polynomials via 'SysLTy'.
 -- * Command results are expressed with 'Data.These' boundaries, matching the
 --   inclusive tensor in "Circuit.Channel".
--- * The boundary target is @Loop These (->)@ (inclusive tensor, not traced).
+-- * The syntactic target is the free SMC @Sym (->)@; boundaries use 'These'
+--   at the value level.
 -- * A streaming reading is provided via 'Circuit.Process'.
 --
 -- The original four regression tests are preserved as 'testId', 'testThen',
@@ -53,12 +54,11 @@ module SysL
     -- * Polynomial view
     PolyVal (..),
 
-    -- * Loop compiler
-    TracedThese,
-    runThese,
-    commandToLoop,
-    termToLoop,
-    cotermToLoop,
+    -- * Sym SMC compiler
+    SMCThese,
+    commandToSym,
+    termToSym,
+    cotermToSym,
 
     -- * Process interpreter
     evalProcess,
@@ -75,7 +75,8 @@ module SysL
   )
 where
 
-import Circuit.Loop (Loop (..))
+import Circuit.Layer (run)
+import Circuit.Net (Sym (..))
 import Circuit.Poly
   ( Eval (..),
     Mono,
@@ -389,119 +390,107 @@ show' (VThen _ _) = "VThen"
 show' (VEmbed _) = "VEmbed"
 
 -- ---------------------------------------------------------------------------
--- Loop These compiler
+-- Sym SMC compiler
 -- ---------------------------------------------------------------------------
 
--- | Type synonym for the inclusive target.
+-- | Type synonym for the free symmetric monoidal target.
 --
--- @Loop These (->)@ is used here as a free category over base arrows with
--- the inclusive tensor on boundaries.  It is /not/ traced: 'Circuit.Channel'
--- does not provide a 'Traced These (->)' instance because the both-branch of
--- 'These' forces a non-canonical choice between feedback and emission, breaking
--- dinaturality.  See the circuits axioma "Traced These is impossible".
---
--- Since the current SysL fragment compiles only to 'Lift' (no 'Knot'), we
--- interpret it with 'runThese' below rather than 'Circuit.Layer.run'.
-type TracedThese = Loop These (->)
-
--- | Interpret a @Loop These (->)@ that contains no 'Knot'.
---
--- 'Knot' would require a 'Traced These' instance, which cannot exist; any
--- attempt to run a 'Knot' is a run-time error.  This is honest for the
--- fragment as long as 'Mu' / 'Comu' are compiled to 'Lift'.
-runThese :: TracedThese a b -> a -> b
-runThese (Lift f) = f
-runThese (Knot _) = error "SysL.runThese: Loop These cannot interpret Knot (Traced These is impossible)"
+-- @Sym (->)@ is the free SMC over plain functions.  Boundaries are still
+-- expressed with 'These' at the value level, but the free category itself
+-- uses the cartesian @(,)@ tensor for 'SymPar' wiring rather than the
+-- inclusive 'These' tensor.  This avoids the impossibility of a 'Traced'
+-- instance for 'These'.
+type SMCThese = Sym (->)
 
 -- ---------------------------------------------------------------------------
 
-commandToLoop :: Command v -> TracedThese (Env v) (Result v)
-commandToLoop (Cut t k) = Lift $ \env ->
-  case runThese (termToLoop t) env of
+commandToSym :: Command v -> SMCThese (Env v) (Result v)
+commandToSym (Cut t k) = SymLift $ \env ->
+  case run (termToSym t) env of
     This out -> This out
-    That val -> runThese (cotermToLoop k) (env, val)
-    These res val -> combine res (runThese (cotermToLoop k) (env, val))
+    That val -> run (cotermToSym k) (env, val)
+    These res val -> combine res (run (cotermToSym k) (env, val))
   where
     combine res (This res') = These res res'
     combine res (That foc) = These res foc
     combine res (These res' foc) = These (merge res res') foc
     merge (i, _) (j, _) = (max i j, VUnit)
 
-termToLoop :: Term v -> TracedThese (Env v) (These (Output v) (Val v))
-termToLoop (Embed v) = Lift $ \env -> That (evalValue v env)
-termToLoop (Mu cmd) = Lift $ \env ->
-  case runThese (commandToLoop cmd) env of
+termToSym :: Term v -> SMCThese (Env v) (These (Output v) (Val v))
+termToSym (Embed v) = SymLift $ \env -> That (evalValue v env)
+termToSym (Mu cmd) = SymLift $ \env ->
+  case run (commandToSym cmd) env of
     This out -> This out
     That (0, val) -> That val
     That out -> This out
     These res (0, val) -> These res val
     These res foc -> These res (snd foc)
-termToLoop (ThenComatch cmd) = Lift $ \env ->
-  let fwdA = case runThese (commandToLoop cmd) env of
+termToSym (ThenComatch cmd) = SymLift $ \env ->
+  let fwdA = case run (commandToSym cmd) env of
         That (1, v) -> v
         These _ (1, v) -> v
         _ -> error "ThenComatch: expected slot 1 for fwd a"
-      bwCont bwA = runThese (commandToLoop cmd) (bwA : env)
+      bwCont bwA = run (commandToSym cmd) (bwA : env)
    in That (VThen fwdA bwCont)
 
-cotermToLoop :: Coterm v -> TracedThese (Env v, Val v) (Result v)
-cotermToLoop (Covar i) = Lift $ \(_, val) ->
+cotermToSym :: Coterm v -> SMCThese (Env v, Val v) (Result v)
+cotermToSym (Covar i) = SymLift $ \(_, val) ->
   if i == 0 then That (0, val) else This (i, val)
-cotermToLoop (Comu cmd) = Lift $ \(env, val) ->
-  runThese (commandToLoop cmd) (val : env)
-cotermToLoop (TensorMatch cmd) = Lift $ \(env, val) ->
+cotermToSym (Comu cmd) = SymLift $ \(env, val) ->
+  run (commandToSym cmd) (val : env)
+cotermToSym (TensorMatch cmd) = SymLift $ \(env, val) ->
   case val of
-    VPair x y -> runThese (commandToLoop cmd) (x : y : env)
+    VPair x y -> run (commandToSym cmd) (x : y : env)
     _ -> error $ "TensorMatch: not a pair: " <> show' val
-cotermToLoop (PlusMatch c1 c2) = Lift $ \(env, val) ->
+cotermToSym (PlusMatch c1 c2) = SymLift $ \(env, val) ->
   case val of
-    VLeft x -> runThese (commandToLoop c1) (x : env)
-    VRight y -> runThese (commandToLoop c2) (y : env)
+    VLeft x -> run (commandToSym c1) (x : env)
+    VRight y -> run (commandToSym c2) (y : env)
     _ -> error $ "PlusMatch: not a sum: " <> show' val
-cotermToLoop (HomCointro t k) = Lift $ \(env, val) ->
-  case runThese (termToLoop t) env of
+cotermToSym (HomCointro t k) = SymLift $ \(env, val) ->
+  case run (termToSym t) env of
     This out -> This out
     That arg -> case val of
       VFun f -> case f arg of
         This out -> This out
-        That (_, v) -> runThese (cotermToLoop k) (env, v)
-        These out (_, v) -> combine out (runThese (cotermToLoop k) (env, v))
+        That (_, v) -> run (cotermToSym k) (env, v)
+        These out (_, v) -> combine out (run (cotermToSym k) (env, v))
       _ -> error "HomCointro: not a function"
     These res arg -> case val of
       VFun f -> case f arg of
         This out -> These res out
-        That (_, v) -> combine res (runThese (cotermToLoop k) (env, v))
-        These out (_, v) -> combine (merge res out) (runThese (cotermToLoop k) (env, v))
+        That (_, v) -> combine res (run (cotermToSym k) (env, v))
+        These out (_, v) -> combine (merge res out) (run (cotermToSym k) (env, v))
       _ -> error "HomCointro: not a function"
   where
     combine res (This res') = These res res'
     combine res (That foc) = These res foc
     combine res (These res' foc) = These (merge res res') foc
     merge (i, _) (j, _) = (max i j, VUnit)
-cotermToLoop (GradedHomCointro t coterms) = Lift $ \(env, val) ->
-  case runThese (termToLoop t) env of
+cotermToSym (GradedHomCointro t coterms) = SymLift $ \(env, val) ->
+  case run (termToSym t) env of
     This out -> This out
     That arg -> case val of
       VGradedFun f -> case f arg of
         This out -> This out
-        That (slot, v) -> runThese (cotermToLoop (coterms !! slot)) (env, v)
-        These out (slot, v) -> combine out (runThese (cotermToLoop (coterms !! slot)) (env, v))
+        That (slot, v) -> run (cotermToSym (coterms !! slot)) (env, v)
+        These out (slot, v) -> combine out (run (cotermToSym (coterms !! slot)) (env, v))
       _ -> error "GradedHomCointro: not a graded function"
     These res arg -> case val of
       VGradedFun f -> case f arg of
         This out -> These res out
-        That (slot, v) -> combine res (runThese (cotermToLoop (coterms !! slot)) (env, v))
-        These out (slot, v) -> combine (merge res out) (runThese (cotermToLoop (coterms !! slot)) (env, v))
+        That (slot, v) -> combine res (run (cotermToSym (coterms !! slot)) (env, v))
+        These out (slot, v) -> combine (merge res out) (run (cotermToSym (coterms !! slot)) (env, v))
       _ -> error "GradedHomCointro: not a graded function"
   where
     combine res (This res') = These res res'
     combine res (That foc) = These res foc
     combine res (These res' foc) = These (merge res res') foc
     merge (i, _) (j, _) = (max i j, VUnit)
-cotermToLoop (ThenCointro k1 k2) = Lift $ \(env, val) ->
+cotermToSym (ThenCointro k1 k2) = SymLift $ \(env, val) ->
   case val of
     VThen fwdA cont ->
-      case runThese (cotermToLoop k1) (env, fwdA) of
+      case run (cotermToSym k1) (env, fwdA) of
         This (_, residual) -> dispatch residual
         That (_, residual) -> dispatch residual
         These _ (_, residual) -> dispatch residual
@@ -509,8 +498,8 @@ cotermToLoop (ThenCointro k1 k2) = Lift $ \(env, val) ->
         dispatch residual =
           case cont residual of
             This out -> This out
-            That (_, fwdB) -> runThese (cotermToLoop k2) (env, fwdB)
-            These out (_, fwdB) -> combine out (runThese (cotermToLoop k2) (env, fwdB))
+            That (_, fwdB) -> run (cotermToSym k2) (env, fwdB)
+            These out (_, fwdB) -> combine out (run (cotermToSym k2) (env, fwdB))
         combine res (This res') = These res res'
         combine res (That foc) = These res foc
         combine res (These res' foc) = These (merge res res') foc
@@ -584,11 +573,11 @@ testThen =
         )
         []
 
--- | Identity test compiled to Loop These.
+-- | Identity test compiled to Sym.
 testIdLoop :: Result ()
 testIdLoop =
-  runThese
-    ( commandToLoop
+  run
+    ( commandToSym
         ( Cut
             (Embed (HomComatch (Cut (Embed (Var 0)) (Covar 0))))
             (HomCointro (Embed (Var 0)) (Covar 0))
@@ -596,12 +585,12 @@ testIdLoop =
     )
     [VUnit]
 
--- | Then test compiled to Loop These.
+-- | Then test compiled to Sym.
 testThenLoop :: Result Double
 testThenLoop =
   let val = VThen (VEmbed 1.0) (\x -> That (0, x))
-   in runThese
-        ( commandToLoop
+   in run
+        ( commandToSym
             ( Cut
                 (Embed (Lit val))
                 ( ThenCointro
