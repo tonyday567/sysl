@@ -25,7 +25,36 @@ library
   default-language: GHC2024
   build-depends:
     base >=4.18 && <5,
-    circuits
+    circuits,
+    these >=1.2.1 && <1.3,
 
   default-extensions:
-    UnicodeSyntax
+    UnicodeSyntax,
+    DataKinds,
+    GADTs,
+    PolyKinds,
+    RankNTypes,
+    ScopedTypeVariables,
+    TypeFamilies,
+    TypeOperators
+
+executable sysl-axioma
+  import:           warnings
+  default-language: GHC2024
+  main-is:          axioma.hs
+  hs-source-dirs:   app
+  build-depends:
+    base >=4.18 && <5,
+    circuits,
+    sysl,
+    these >=1.2.1 && <1.3,
+
+  default-extensions:
+    UnicodeSyntax,
+    DataKinds,
+    GADTs,
+    PolyKinds,
+    RankNTypes,
+    ScopedTypeVariables,
+    TypeFamilies,
+    TypeOperators
