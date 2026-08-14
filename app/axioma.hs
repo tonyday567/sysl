@@ -1,7 +1,6 @@
 -- | SysL oracle suite: polynomial encoding and @These@ boundaries.
 module Main where
 
-import Circuit.Layer (run)
 import Circuit.Process (scan)
 import Data.These (These (..))
 import SysL
@@ -96,7 +95,7 @@ s4HomBetaEta =
           (Embed (HomComatch (Cut (Embed (Var 0)) (Covar 0))))
           (HomCointro (Embed (Var 0)) (Covar 0))
       direct = evalCommand cmd [VUnit]
-      looped = run (commandToLoop cmd) [VUnit]
+      looped = runThese (commandToLoop cmd) [VUnit]
    in assertEq "S4 Hom direct" (That (0, VUnit) :: Result ()) direct
       && assertEq "S4 Hom loop" (That (0, VUnit) :: Result ()) looped
 
@@ -142,7 +141,7 @@ s7MuIdentity =
   let -- Mu of the identity command returns the focus value.
       term = Mu (Cut (Embed (Var 0)) (Covar 0))
       direct = evalTerm term [VUnit]
-      looped = run (termToLoop term) [VUnit]
+      looped = runThese (termToLoop term) [VUnit]
    in assertEq "S7 Mu direct" (That VUnit :: These (Output ()) (Val ())) direct
       && assertEq "S7 Mu loop" (That VUnit :: These (Output ()) (Val ())) looped
 
@@ -156,7 +155,7 @@ s8ComuCorecursion =
       coterm = Comu (Cut (Embed (Var 0)) (Covar 0))
       cmd = Cut (Embed (Lit (VEmbed 7 :: Val Int))) coterm
       direct = evalCommand cmd []
-      looped = run (commandToLoop cmd) []
+      looped = runThese (commandToLoop cmd) []
    in assertEq "S8 Comu direct" (That (0, VEmbed 7) :: Result Int) direct
       && assertEq "S8 Comu loop" (That (0, VEmbed 7) :: Result Int) looped
 

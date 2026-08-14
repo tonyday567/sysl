@@ -12,8 +12,6 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE UnicodeSyntax #-}
-{-# OPTIONS_GHC -Wno-orphans #-}
-
 -- | System L with polynomial types and @These@ covariable boundaries.
 --
 -- This module rebuilds the original hand-rolled @Loop (,) (->)@ interpreter
@@ -22,7 +20,7 @@
 -- * User-facing types are promoted to 'Circuit.Poly' polynomials via 'SysLTy'.
 -- * Command results are expressed with 'Data.These' boundaries, matching the
 --   inclusive tensor in "Circuit.Channel".
--- * The traced target is now @Loop These (->)@.
+-- * The boundary target is @Loop These (->)@ (inclusive tensor, not traced).
 -- * A streaming reading is provided via 'Circuit.Process'.
 --
 -- The original four regression tests are preserved as 'testId', 'testThen',
@@ -57,6 +55,7 @@ module SysL
 
     -- * Loop compiler
     TracedThese,
+    runThese,
     commandToLoop,
     termToLoop,
     cotermToLoop,
@@ -76,8 +75,6 @@ module SysL
   )
 where
 
-import Circuit.Channel (Traced (..))
-import Circuit.Layer (run)
 import Circuit.Loop (Loop (..))
 import Circuit.Poly
   ( Eval (..),
@@ -392,39 +389,38 @@ show' (VThen _ _) = "VThen"
 show' (VEmbed _) = "VEmbed"
 
 -- ---------------------------------------------------------------------------
--- Traced These instance for (->)
+-- Loop These compiler
 -- ---------------------------------------------------------------------------
 
--- | Type synonym for the new traced target.
+-- | Type synonym for the inclusive target.
+--
+-- @Loop These (->)@ is used here as a free category over base arrows with
+-- the inclusive tensor on boundaries.  It is /not/ traced: 'Circuit.Channel'
+-- does not provide a 'Traced These (->)' instance because the both-branch of
+-- 'These' forces a non-canonical choice between feedback and emission, breaking
+-- dinaturality.  See the circuits axioma "Traced These is impossible".
+--
+-- Since the current SysL fragment compiles only to 'Lift' (no 'Knot'), we
+-- interpret it with 'runThese' below rather than 'Circuit.Layer.run'.
 type TracedThese = Loop These (->)
 
--- | Inclusive trace for functions: iterate the feedback channel until the
--- body produces a payload ('That' or 'These').
+-- | Interpret a @Loop These (->)@ that contains no 'Knot'.
 --
--- This is the missing base instance that lets @Loop These (->)@ interpret
--- 'Knot' bodies.  It mirrors the 'Either' trace but uses 'This' for
--- continue-feedback and 'That' / 'These' for exit.
-instance Traced These (->) where
-  trace f b = case f (That b) of
-    This a -> go a
-    That c -> c
-    These _ c -> c
-    where
-      go a = case f (These a b) of
-        This a' -> go a'
-        That c -> c
-        These _ c -> c
+-- 'Knot' would require a 'Traced These' instance, which cannot exist; any
+-- attempt to run a 'Knot' is a run-time error.  This is honest for the
+-- fragment as long as 'Mu' / 'Comu' are compiled to 'Lift'.
+runThese :: TracedThese a b -> a -> b
+runThese (Lift f) = f
+runThese (Knot _) = error "SysL.runThese: Loop These cannot interpret Knot (Traced These is impossible)"
 
--- ---------------------------------------------------------------------------
--- Loop These compiler
 -- ---------------------------------------------------------------------------
 
 commandToLoop :: Command v -> TracedThese (Env v) (Result v)
 commandToLoop (Cut t k) = Lift $ \env ->
-  case run (termToLoop t) env of
+  case runThese (termToLoop t) env of
     This out -> This out
-    That val -> run (cotermToLoop k) (env, val)
-    These res val -> combine res (run (cotermToLoop k) (env, val))
+    That val -> runThese (cotermToLoop k) (env, val)
+    These res val -> combine res (runThese (cotermToLoop k) (env, val))
   where
     combine res (This res') = These res res'
     combine res (That foc) = These res foc
@@ -434,48 +430,48 @@ commandToLoop (Cut t k) = Lift $ \env ->
 termToLoop :: Term v -> TracedThese (Env v) (These (Output v) (Val v))
 termToLoop (Embed v) = Lift $ \env -> That (evalValue v env)
 termToLoop (Mu cmd) = Lift $ \env ->
-  case run (commandToLoop cmd) env of
+  case runThese (commandToLoop cmd) env of
     This out -> This out
     That (0, val) -> That val
     That out -> This out
     These res (0, val) -> These res val
     These res foc -> These res (snd foc)
 termToLoop (ThenComatch cmd) = Lift $ \env ->
-  let fwdA = case run (commandToLoop cmd) env of
+  let fwdA = case runThese (commandToLoop cmd) env of
         That (1, v) -> v
         These _ (1, v) -> v
         _ -> error "ThenComatch: expected slot 1 for fwd a"
-      bwCont bwA = run (commandToLoop cmd) (bwA : env)
+      bwCont bwA = runThese (commandToLoop cmd) (bwA : env)
    in That (VThen fwdA bwCont)
 
 cotermToLoop :: Coterm v -> TracedThese (Env v, Val v) (Result v)
 cotermToLoop (Covar i) = Lift $ \(_, val) ->
   if i == 0 then That (0, val) else This (i, val)
 cotermToLoop (Comu cmd) = Lift $ \(env, val) ->
-  run (commandToLoop cmd) (val : env)
+  runThese (commandToLoop cmd) (val : env)
 cotermToLoop (TensorMatch cmd) = Lift $ \(env, val) ->
   case val of
-    VPair x y -> run (commandToLoop cmd) (x : y : env)
+    VPair x y -> runThese (commandToLoop cmd) (x : y : env)
     _ -> error $ "TensorMatch: not a pair: " <> show' val
 cotermToLoop (PlusMatch c1 c2) = Lift $ \(env, val) ->
   case val of
-    VLeft x -> run (commandToLoop c1) (x : env)
-    VRight y -> run (commandToLoop c2) (y : env)
+    VLeft x -> runThese (commandToLoop c1) (x : env)
+    VRight y -> runThese (commandToLoop c2) (y : env)
     _ -> error $ "PlusMatch: not a sum: " <> show' val
 cotermToLoop (HomCointro t k) = Lift $ \(env, val) ->
-  case run (termToLoop t) env of
+  case runThese (termToLoop t) env of
     This out -> This out
     That arg -> case val of
       VFun f -> case f arg of
         This out -> This out
-        That (_, v) -> run (cotermToLoop k) (env, v)
-        These out (_, v) -> combine out (run (cotermToLoop k) (env, v))
+        That (_, v) -> runThese (cotermToLoop k) (env, v)
+        These out (_, v) -> combine out (runThese (cotermToLoop k) (env, v))
       _ -> error "HomCointro: not a function"
     These res arg -> case val of
       VFun f -> case f arg of
         This out -> These res out
-        That (_, v) -> combine res (run (cotermToLoop k) (env, v))
-        These out (_, v) -> combine (merge res out) (run (cotermToLoop k) (env, v))
+        That (_, v) -> combine res (runThese (cotermToLoop k) (env, v))
+        These out (_, v) -> combine (merge res out) (runThese (cotermToLoop k) (env, v))
       _ -> error "HomCointro: not a function"
   where
     combine res (This res') = These res res'
@@ -483,19 +479,19 @@ cotermToLoop (HomCointro t k) = Lift $ \(env, val) ->
     combine res (These res' foc) = These (merge res res') foc
     merge (i, _) (j, _) = (max i j, VUnit)
 cotermToLoop (GradedHomCointro t coterms) = Lift $ \(env, val) ->
-  case run (termToLoop t) env of
+  case runThese (termToLoop t) env of
     This out -> This out
     That arg -> case val of
       VGradedFun f -> case f arg of
         This out -> This out
-        That (slot, v) -> run (cotermToLoop (coterms !! slot)) (env, v)
-        These out (slot, v) -> combine out (run (cotermToLoop (coterms !! slot)) (env, v))
+        That (slot, v) -> runThese (cotermToLoop (coterms !! slot)) (env, v)
+        These out (slot, v) -> combine out (runThese (cotermToLoop (coterms !! slot)) (env, v))
       _ -> error "GradedHomCointro: not a graded function"
     These res arg -> case val of
       VGradedFun f -> case f arg of
         This out -> These res out
-        That (slot, v) -> combine res (run (cotermToLoop (coterms !! slot)) (env, v))
-        These out (slot, v) -> combine (merge res out) (run (cotermToLoop (coterms !! slot)) (env, v))
+        That (slot, v) -> combine res (runThese (cotermToLoop (coterms !! slot)) (env, v))
+        These out (slot, v) -> combine (merge res out) (runThese (cotermToLoop (coterms !! slot)) (env, v))
       _ -> error "GradedHomCointro: not a graded function"
   where
     combine res (This res') = These res res'
@@ -505,7 +501,7 @@ cotermToLoop (GradedHomCointro t coterms) = Lift $ \(env, val) ->
 cotermToLoop (ThenCointro k1 k2) = Lift $ \(env, val) ->
   case val of
     VThen fwdA cont ->
-      case run (cotermToLoop k1) (env, fwdA) of
+      case runThese (cotermToLoop k1) (env, fwdA) of
         This (_, residual) -> dispatch residual
         That (_, residual) -> dispatch residual
         These _ (_, residual) -> dispatch residual
@@ -513,8 +509,8 @@ cotermToLoop (ThenCointro k1 k2) = Lift $ \(env, val) ->
         dispatch residual =
           case cont residual of
             This out -> This out
-            That (_, fwdB) -> run (cotermToLoop k2) (env, fwdB)
-            These out (_, fwdB) -> combine out (run (cotermToLoop k2) (env, fwdB))
+            That (_, fwdB) -> runThese (cotermToLoop k2) (env, fwdB)
+            These out (_, fwdB) -> combine out (runThese (cotermToLoop k2) (env, fwdB))
         combine res (This res') = These res res'
         combine res (That foc) = These res foc
         combine res (These res' foc) = These (merge res res') foc
@@ -591,7 +587,7 @@ testThen =
 -- | Identity test compiled to Loop These.
 testIdLoop :: Result ()
 testIdLoop =
-  run
+  runThese
     ( commandToLoop
         ( Cut
             (Embed (HomComatch (Cut (Embed (Var 0)) (Covar 0))))
@@ -604,7 +600,7 @@ testIdLoop =
 testThenLoop :: Result Double
 testThenLoop =
   let val = VThen (VEmbed 1.0) (\x -> That (0, x))
-   in run
+   in runThese
         ( commandToLoop
             ( Cut
                 (Embed (Lit val))
