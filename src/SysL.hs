@@ -399,7 +399,7 @@ show' (VEmbed _) = "VEmbed"
 -- uses the cartesian @(,)@ tensor for 'SymPar' wiring rather than the
 -- inclusive 'These' tensor.  This avoids the impossibility of a 'Traced'
 -- instance for 'These'.
-type SMCThese = Sym (->)
+type SMCThese = Sym (,) (->)
 
 -- ---------------------------------------------------------------------------
 
