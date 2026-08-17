@@ -25,7 +25,7 @@ main = do
     then putStrLn "all green"
     else do
       putStrLn "failures detected"
-      mapM_ (putStrLn . show) (zip [(1 :: Int) ..] results)
+      mapM_ (print) (zip [(1 :: Int) ..] results)
 
 -- ---------------------------------------------------------------------------
 -- Oracle helpers
@@ -82,7 +82,7 @@ s3PlusRoundTrip =
       leftV' = evalToVal @('Plus 'One 'One) leftE
       rightV' = evalToVal @('Plus 'One 'One) rightE
    in assertEq "S3 Plus left" leftV leftV'
-      && assertEq "S3 Plus right" rightV rightV'
+        && assertEq "S3 Plus right" rightV rightV'
 
 -- ---------------------------------------------------------------------------
 -- S4: Hom beta/eta
@@ -98,7 +98,7 @@ s4HomBetaEta =
       direct = evalCommand cmd [VUnit]
       looped = run (commandToSym cmd) [VUnit]
    in assertEq "S4 Hom direct" (That (0, VUnit) :: Result ()) direct
-      && assertEq "S4 Hom loop" (That (0, VUnit) :: Result ()) looped
+        && assertEq "S4 Hom loop" (That (0, VUnit) :: Result ()) looped
 
 -- ---------------------------------------------------------------------------
 -- S5: Then forward/backward round-trip
@@ -111,7 +111,7 @@ s5ThenRoundTrip =
       (fwd, bw) = applyThen l (VEmbed 6)
       back = bw fwd
    in assertEq "S5 Then forward" (VEmbed 12) fwd
-      && assertEq "S5 Then backward" (VEmbed 6) back
+        && assertEq "S5 Then backward" (VEmbed 6) back
 
 -- ---------------------------------------------------------------------------
 -- S6: GradedHom slot dispatch
@@ -131,7 +131,7 @@ s6GradedHomDispatch =
       resEven = evalCommand cmdEven [VEmbed 4]
       resOdd = evalCommand cmdOdd [VEmbed 5]
    in assertEq "S6 GradedHom even slot" (That (0, VEmbed 5) :: Result Int) resEven
-      && assertEq "S6 GradedHom odd slot" (This (1, VEmbed 4) :: Result Int) resOdd
+        && assertEq "S6 GradedHom odd slot" (This (1, VEmbed 4) :: Result Int) resOdd
 
 -- ---------------------------------------------------------------------------
 -- S7: Mu fixed-point identity via trace
@@ -144,7 +144,7 @@ s7MuIdentity =
       direct = evalTerm term [VUnit]
       looped = run (termToSym term) [VUnit]
    in assertEq "S7 Mu direct" (That VUnit :: These (Output ()) (Val ())) direct
-      && assertEq "S7 Mu loop" (That VUnit :: These (Output ()) (Val ())) looped
+        && assertEq "S7 Mu loop" (That VUnit :: These (Output ()) (Val ())) looped
 
 -- ---------------------------------------------------------------------------
 -- S8: Comu corecursion
@@ -158,7 +158,7 @@ s8ComuCorecursion =
       direct = evalCommand cmd []
       looped = run (commandToSym cmd) []
    in assertEq "S8 Comu direct" (That (0, VEmbed 7) :: Result Int) direct
-      && assertEq "S8 Comu loop" (That (0, VEmbed 7) :: Result Int) looped
+        && assertEq "S8 Comu loop" (That (0, VEmbed 7) :: Result Int) looped
 
 -- ---------------------------------------------------------------------------
 -- S9: Direct evaluator agrees with Loop interpreter
