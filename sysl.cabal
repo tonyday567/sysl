@@ -1,13 +1,13 @@
-cabal-version:      3.0
-name:               sysl
-version:            0.1.0.0
-synopsis:           System language interpreter with traced monoidal evaluation
-description:        A system language with commands, values, terms and coterms, interpreted via traced monoidal categories.
-license:            BSD-3-Clause
-author:             tonyday567
-maintainer:         tonyday567@gmail.com
-category:           Language
-build-type:         Simple
+cabal-version: 3.0
+name: sysl
+version: 0.1.0.0
+synopsis: System language interpreter with traced monoidal evaluation
+description: A system language with commands, values, terms and coterms, interpreted via traced monoidal categories.
+license: BSD-3-Clause
+author: tonyday567
+maintainer: tonyday567@gmail.com
+category: Language
+build-type: Simple
 
 common warnings
   ghc-options:
@@ -18,10 +18,11 @@ common warnings
     -Wredundant-constraints
 
 library
-  import:           warnings
+  import: warnings
   exposed-modules:
     SysL
-  hs-source-dirs:   src
+
+  hs-source-dirs: src
   default-language: GHC2024
   build-depends:
     base >=4.18 && <5,
@@ -29,20 +30,20 @@ library
     these >=1.2.1 && <1.3,
 
   default-extensions:
-    UnicodeSyntax,
-    DataKinds,
-    GADTs,
-    PolyKinds,
-    RankNTypes,
-    ScopedTypeVariables,
-    TypeFamilies,
+    DataKinds
+    GADTs
+    PolyKinds
+    RankNTypes
+    ScopedTypeVariables
+    TypeFamilies
     TypeOperators
+    UnicodeSyntax
 
 executable sysl-axioma
-  import:           warnings
+  import: warnings
   default-language: GHC2024
-  main-is:          axioma.hs
-  hs-source-dirs:   app
+  main-is: axioma.hs
+  hs-source-dirs: app
   build-depends:
     base >=4.18 && <5,
     circuits,
@@ -50,11 +51,11 @@ executable sysl-axioma
     these >=1.2.1 && <1.3,
 
   default-extensions:
-    UnicodeSyntax,
-    DataKinds,
-    GADTs,
-    PolyKinds,
-    RankNTypes,
-    ScopedTypeVariables,
-    TypeFamilies,
+    DataKinds
+    GADTs
+    PolyKinds
+    RankNTypes
+    ScopedTypeVariables
+    TypeFamilies
     TypeOperators
+    UnicodeSyntax
