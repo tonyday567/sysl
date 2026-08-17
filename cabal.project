@@ -1,5 +1,3 @@
-packages:
-  sysl.cabal
-  ../circuits/circuits.cabal
+packages: sysl.cabal
 
 write-ghc-environment-files: always
