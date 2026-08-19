@@ -25,7 +25,7 @@ main = do
     then putStrLn "all green"
     else do
       putStrLn "failures detected"
-      mapM_ (print) (zip [(1 :: Int) ..] results)
+      mapM_ print (zip [(1 :: Int) ..] results)
 
 -- ---------------------------------------------------------------------------
 -- Oracle helpers
@@ -33,15 +33,14 @@ main = do
 
 assertEq :: (Eq a, Show a) => String -> a -> a -> Bool
 assertEq name expected actual =
-  if expected == actual
-    then True
-    else
-      error $
-        name
+  (expected == actual)
+    || error
+      ( name
           <> ": expected "
           <> show expected
           <> ", got "
           <> show actual
+      )
 
 getInt :: Val Int -> Int
 getInt (VEmbed n) = n
