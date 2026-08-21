@@ -19,7 +19,7 @@
 -- * User-facing types are promoted to 'Circuit.Poly' polynomials via 'SysLTy'.
 -- * Command results are expressed with 'Data.These' boundaries, matching the
 --   inclusive tensor in "Circuit.Channel".
--- * The syntactic target is the free SMC @Sym (->)@; boundaries use 'These'
+-- * The syntactic target is the free SMC @SMC (->)@; boundaries use 'These'
 --   at the value level.
 -- * A streaming reading is provided via 'Circuit.Process'.
 --
@@ -53,11 +53,11 @@ module SysL
     -- * Polynomial view
     PolyVal (..),
 
-    -- * Sym SMC compiler
+    -- * SMC SMC compiler
     SMCThese,
-    commandToSym,
-    termToSym,
-    cotermToSym,
+    commandToSMC,
+    termToSMC,
+    cotermToSMC,
 
     -- * Process interpreter
     evalProcess,
@@ -75,7 +75,6 @@ module SysL
 where
 
 import Circuit.Layer (run)
-import Circuit.Net (Sym (..))
 import Circuit.Poly
   ( Eval (..),
     Mono,
@@ -85,6 +84,7 @@ import Circuit.Poly
     lens,
   )
 import Circuit.Process (Process (..))
+import Circuit.SMC (SMC (..))
 import Data.Kind (Type)
 import Data.These (These (..))
 import Data.Void (Void, absurd)
@@ -389,107 +389,107 @@ show' (VThen _ _) = "VThen"
 show' (VEmbed _) = "VEmbed"
 
 -- ---------------------------------------------------------------------------
--- Sym SMC compiler
+-- SMC SMC compiler
 -- ---------------------------------------------------------------------------
 
 -- | Type synonym for the free symmetric monoidal target.
 --
--- @Sym (->)@ is the free SMC over plain functions.  Boundaries are still
+-- @SMC (->)@ is the free SMC over plain functions.  Boundaries are still
 -- expressed with 'These' at the value level, but the free category itself
--- uses the cartesian @(,)@ tensor for 'SymPar' wiring rather than the
+-- uses the cartesian @(,)@ tensor for 'SMCPar' wiring rather than the
 -- inclusive 'These' tensor.  This avoids the impossibility of a 'Traced'
 -- instance for 'These'.
-type SMCThese = Sym (,) (->)
+type SMCThese = SMC (,) (->)
 
 -- ---------------------------------------------------------------------------
 
-commandToSym :: Command v -> SMCThese (Env v) (Result v)
-commandToSym (Cut t k) = SymLift $ \env ->
-  case run (termToSym t) env of
+commandToSMC :: Command v -> SMCThese (Env v) (Result v)
+commandToSMC (Cut t k) = SMCLift $ \env ->
+  case run (termToSMC t) env of
     This out -> This out
-    That val -> run (cotermToSym k) (env, val)
-    These res val -> combine res (run (cotermToSym k) (env, val))
+    That val -> run (cotermToSMC k) (env, val)
+    These res val -> combine res (run (cotermToSMC k) (env, val))
   where
     combine res (This res') = These res res'
     combine res (That foc) = These res foc
     combine res (These res' foc) = These (merge res res') foc
     merge (i, _) (j, _) = (max i j, VUnit)
 
-termToSym :: Term v -> SMCThese (Env v) (These (Output v) (Val v))
-termToSym (Embed v) = SymLift $ \env -> That (evalValue v env)
-termToSym (Mu cmd) = SymLift $ \env ->
-  case run (commandToSym cmd) env of
+termToSMC :: Term v -> SMCThese (Env v) (These (Output v) (Val v))
+termToSMC (Embed v) = SMCLift $ \env -> That (evalValue v env)
+termToSMC (Mu cmd) = SMCLift $ \env ->
+  case run (commandToSMC cmd) env of
     This out -> This out
     That (0, val) -> That val
     That out -> This out
     These res (0, val) -> These res val
     These res foc -> These res (snd foc)
-termToSym (ThenComatch cmd) = SymLift $ \env ->
-  let fwdA = case run (commandToSym cmd) env of
+termToSMC (ThenComatch cmd) = SMCLift $ \env ->
+  let fwdA = case run (commandToSMC cmd) env of
         That (1, v) -> v
         These _ (1, v) -> v
         _ -> error "ThenComatch: expected slot 1 for fwd a"
-      bwCont bwA = run (commandToSym cmd) (bwA : env)
+      bwCont bwA = run (commandToSMC cmd) (bwA : env)
    in That (VThen fwdA bwCont)
 
-cotermToSym :: Coterm v -> SMCThese (Env v, Val v) (Result v)
-cotermToSym (Covar i) = SymLift $ \(_, val) ->
+cotermToSMC :: Coterm v -> SMCThese (Env v, Val v) (Result v)
+cotermToSMC (Covar i) = SMCLift $ \(_, val) ->
   if i == 0 then That (0, val) else This (i, val)
-cotermToSym (Comu cmd) = SymLift $ \(env, val) ->
-  run (commandToSym cmd) (val : env)
-cotermToSym (TensorMatch cmd) = SymLift $ \(env, val) ->
+cotermToSMC (Comu cmd) = SMCLift $ \(env, val) ->
+  run (commandToSMC cmd) (val : env)
+cotermToSMC (TensorMatch cmd) = SMCLift $ \(env, val) ->
   case val of
-    VPair x y -> run (commandToSym cmd) (x : y : env)
+    VPair x y -> run (commandToSMC cmd) (x : y : env)
     _ -> error $ "TensorMatch: not a pair: " <> show' val
-cotermToSym (PlusMatch c1 c2) = SymLift $ \(env, val) ->
+cotermToSMC (PlusMatch c1 c2) = SMCLift $ \(env, val) ->
   case val of
-    VLeft x -> run (commandToSym c1) (x : env)
-    VRight y -> run (commandToSym c2) (y : env)
+    VLeft x -> run (commandToSMC c1) (x : env)
+    VRight y -> run (commandToSMC c2) (y : env)
     _ -> error $ "PlusMatch: not a sum: " <> show' val
-cotermToSym (HomCointro t k) = SymLift $ \(env, val) ->
-  case run (termToSym t) env of
+cotermToSMC (HomCointro t k) = SMCLift $ \(env, val) ->
+  case run (termToSMC t) env of
     This out -> This out
     That arg -> case val of
       VFun f -> case f arg of
         This out -> This out
-        That (_, v) -> run (cotermToSym k) (env, v)
-        These out (_, v) -> combine out (run (cotermToSym k) (env, v))
+        That (_, v) -> run (cotermToSMC k) (env, v)
+        These out (_, v) -> combine out (run (cotermToSMC k) (env, v))
       _ -> error "HomCointro: not a function"
     These res arg -> case val of
       VFun f -> case f arg of
         This out -> These res out
-        That (_, v) -> combine res (run (cotermToSym k) (env, v))
-        These out (_, v) -> combine (merge res out) (run (cotermToSym k) (env, v))
+        That (_, v) -> combine res (run (cotermToSMC k) (env, v))
+        These out (_, v) -> combine (merge res out) (run (cotermToSMC k) (env, v))
       _ -> error "HomCointro: not a function"
   where
     combine res (This res') = These res res'
     combine res (That foc) = These res foc
     combine res (These res' foc) = These (merge res res') foc
     merge (i, _) (j, _) = (max i j, VUnit)
-cotermToSym (GradedHomCointro t coterms) = SymLift $ \(env, val) ->
-  case run (termToSym t) env of
+cotermToSMC (GradedHomCointro t coterms) = SMCLift $ \(env, val) ->
+  case run (termToSMC t) env of
     This out -> This out
     That arg -> case val of
       VGradedFun f -> case f arg of
         This out -> This out
-        That (slot, v) -> run (cotermToSym (coterms !! slot)) (env, v)
-        These out (slot, v) -> combine out (run (cotermToSym (coterms !! slot)) (env, v))
+        That (slot, v) -> run (cotermToSMC (coterms !! slot)) (env, v)
+        These out (slot, v) -> combine out (run (cotermToSMC (coterms !! slot)) (env, v))
       _ -> error "GradedHomCointro: not a graded function"
     These res arg -> case val of
       VGradedFun f -> case f arg of
         This out -> These res out
-        That (slot, v) -> combine res (run (cotermToSym (coterms !! slot)) (env, v))
-        These out (slot, v) -> combine (merge res out) (run (cotermToSym (coterms !! slot)) (env, v))
+        That (slot, v) -> combine res (run (cotermToSMC (coterms !! slot)) (env, v))
+        These out (slot, v) -> combine (merge res out) (run (cotermToSMC (coterms !! slot)) (env, v))
       _ -> error "GradedHomCointro: not a graded function"
   where
     combine res (This res') = These res res'
     combine res (That foc) = These res foc
     combine res (These res' foc) = These (merge res res') foc
     merge (i, _) (j, _) = (max i j, VUnit)
-cotermToSym (ThenCointro k1 k2) = SymLift $ \(env, val) ->
+cotermToSMC (ThenCointro k1 k2) = SMCLift $ \(env, val) ->
   case val of
     VThen fwdA cont ->
-      case run (cotermToSym k1) (env, fwdA) of
+      case run (cotermToSMC k1) (env, fwdA) of
         This (_, residual) -> dispatch residual
         That (_, residual) -> dispatch residual
         These _ (_, residual) -> dispatch residual
@@ -497,8 +497,8 @@ cotermToSym (ThenCointro k1 k2) = SymLift $ \(env, val) ->
         dispatch residual =
           case cont residual of
             This out -> This out
-            That (_, fwdB) -> run (cotermToSym k2) (env, fwdB)
-            These out (_, fwdB) -> combine out (run (cotermToSym k2) (env, fwdB))
+            That (_, fwdB) -> run (cotermToSMC k2) (env, fwdB)
+            These out (_, fwdB) -> combine out (run (cotermToSMC k2) (env, fwdB))
         combine res (This res') = These res res'
         combine res (That foc) = These res foc
         combine res (These res' foc) = These (merge res res') foc
@@ -572,11 +572,11 @@ testThen =
         )
         []
 
--- | Identity test compiled to Sym.
+-- | Identity test compiled to SMC.
 testIdLoop :: Result ()
 testIdLoop =
   run
-    ( commandToSym
+    ( commandToSMC
         ( Cut
             (Embed (HomComatch (Cut (Embed (Var 0)) (Covar 0))))
             (HomCointro (Embed (Var 0)) (Covar 0))
@@ -584,12 +584,12 @@ testIdLoop =
     )
     [VUnit]
 
--- | Then test compiled to Sym.
+-- | Then test compiled to SMC.
 testThenLoop :: Result Double
 testThenLoop =
   let val = VThen (VEmbed 1.0) (\x -> That (0, x))
    in run
-        ( commandToSym
+        ( commandToSMC
             ( Cut
                 (Embed (Lit val))
                 ( ThenCointro
